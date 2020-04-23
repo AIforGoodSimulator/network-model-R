@@ -1,0 +1,222 @@
+---
+title: "SEIQRHF Network Model"
+author: "Luis Chaves"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, echo = F}
+library(tidyverse)
+library(magrittr)
+library(lubridate)
+library(stringr)
+library(tibble)
+library(broom)
+library(ggplot2)
+library(gt)
+library(knitr)
+library(devtools)
+library(DiagrammeR)
+library(parallel)
+library(foreach)
+library(tictoc)
+suppressMessages(library(EpiModel))
+library(incidence)
+library(earlyR)
+```
+
+# Sourcing custom modules
+
+```{r}
+source("SEIQHRFNetModules.R")
+```
+
+# Setting very basic network
+
+```{r}
+n = 1000 
+nw = network.initialize(n = n, directed = FALSE)
+```
+
+Explanation of the formation terms (documentation can be found by running `help(edge.terms)` and choosing the ergm option). 
+We'll explain here what some basic terms are and should be:
+
+* `edges`: This term adds one network statistic equal to the number of edges (i.e. nonzero values) in the network. For undirected networks, edges is equal to kstar(1); for directed networks, edges is equal to both ostar(1) and istar(1).
+* `concurrent`: This term adds one network statistic to the model, equal to the number of nodes in the network with degree 2 or higher. The optional argument by specifies a vertex attribute (see Specifying Vertex Attributes and Levels for details); it functions just like the by argument of the degree term. This term can only be used with undirected networks.
+* `nodefactor`:
+* `nodematch`:
+* `nodemix`:
+```{r}
+formation <- ~edges+concurrent
+
+target.stats = c(500, 250)
+
+d.rate = 0.0001
+coef.diss = dissolution_coefs(dissolution = ~offset(edges),
+                              duration = 15,
+                              d.rate = d.rate) # this correspond to external deaths
+est1 <- netest(nw,
+               formation,
+               target.stats,
+               coef.diss,
+               edapprox = T,
+               verbose = F)
+```
+
+## Diagnostics
+```{r}
+cores = parallel::detectCores()-1
+
+dx = netdx(est1,
+           nsims = 5,
+           nsteps = 180, # simulating 6 months
+           ncores = cores)
+plot(dx)
+dx
+```
+
+## Running epidemic
+
+```{r}
+param = param.net(act.rate.se = 10,
+                  inf.prob.se = 0.02,
+                  act.rate.si = 10,
+                  inf.prob.si = 0.05,
+                  act.rate.sq = 2.5,
+                  inf.prob.sq = 0.02,
+                  ei.rate = 1/10,
+                  iq.rate = c(rep(1/30, 60), rep(15/30, 120)), # time varying works
+                  ih.rate = 1/100,
+                  qh.rate = 1/100,
+                  hr.rate = 1/15,
+                  qr.rate = 1/20,
+                  hf.rate = 1/50,
+                  hf.rate.overcap = 1/25,
+                  hosp.cap = 5,
+                  hosp.tcoeff = 0.5,
+                  a.rate = 0,
+                  di.rate = d.rate,
+                  ds.rate = d.rate,
+                  dr.rate = d.rate
+                  ) 
+
+init = init.net(i.num = 3,
+                r.num = 0,
+                e.num = 0,
+                s.num = n - 3,
+                f.num = 0,
+                h.num = 0,
+                q.num = 0
+                )
+```
+
+
+```{r}
+control = control.net(
+                      nsims = 1, 
+                      nsteps = 180,
+                      # delete.nodes = T,  this does not work for now
+                      ncores = 1,#cores,#cores,
+                      initialize.FUN = custom.initialize.net, # this bit is just so that I can extract time
+                      exposure.FUN = exposure,
+                      infect.FUN = infect,
+                      quarantine.FUN = quarantining,
+                      hospitalize.FUN = RequireHospitalization,
+                      recover.FUN = recover,
+                      fatality.FUN = fatality,
+                      recovery.FUN = NULL,
+                      infection.FUN = NULL,
+                      departures.FUN = departures.net,
+                      skip_check = FALSE,
+                      depend = T
+                      )
+
+t0 = Sys.time()
+sim1 = custom.netsim(est1, param, init, control)
+print(Sys.time()-t0)
+res = as.data.frame(sim1)
+```
+
+```{r}
+library(ggplot2)
+library(plotly)
+theme_set(theme_bw())
+ggplotly(res %>% select(s.num, e.num, i.num, q.num, h.num, r.num, f.num, num, time) %>%
+  group_by(time) %>% summarise_all(~mean(.)) %>% 
+  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+  geom_line(size = 1)+scale_color_brewer(palette = "Set1"))
+
+```
+
+
+# For diagnostics
+```{r}
+get_times <- function(simulation.object) {
+  
+  sim <- simulation.object
+  
+  for (s in 1:sim$control$nsims) {
+    if (s == 1) {
+      times <- sim$times[[paste0("sim", s)]]
+      times <- times %>% mutate(s = s)
+    } else {
+      times <- times %>% bind_rows(sim$times[[paste("sim", 
+                                                    s, sep = "")]] %>% mutate(s = s))
+    }
+  }
+  
+  times <- times %>%
+    mutate(infTime = ifelse(infTime < 0, -5, infTime),
+           expTime = ifelse(expTime < 0, -5, expTime)) %>% 
+    mutate(incubation_period = infTime - expTime,
+           illness_duration = recTime - expTime,
+           illness_duration_hosp = dischTime - expTime, 
+           hosp_los = dischTime - hospTime,
+           quarantine_delay = quarTime - infTime,
+           survival_time = fatTime - infTime) %>% 
+    select(s,
+           incubation_period,
+           quarantine_delay,
+           illness_duration, 
+           illness_duration_hosp,
+           hosp_los,
+           survival_time) %>% 
+    pivot_longer(-s, names_to = "period_type", values_to = "duration") %>% 
+    mutate(period_type = factor(period_type,
+                                levels = c("incubation_period", 
+                                           "quarantine_delay",
+                                           "illness_duration",
+                                           "illness_duration_hosp", 
+                                           "hosp_los",
+                                           "survival_time"),
+                                labels = c("Incubation period", 
+                                           "Delay entering isolation",
+                                           "Illness duration",
+                                           "Illness duration (hosp)", 
+                                           "Hospital care required duration",
+                                           "Survival time of case fatalities"), 
+                                ordered = TRUE))
+  return(times)
+}
+```
+
+```{r}
+times = get_times(sim1)
+
+times %>% filter(duration <= 30) %>% ggplot(aes(x = duration)) + 
+    geom_density() + facet_wrap(period_type ~ ., scales = "free_y") + 
+    labs(title = "Duration frequency distributions", subtitle = "Baseline simulation")
+
+```
+
+
+
+
+
+
+
+
+
