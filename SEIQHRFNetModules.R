@@ -171,7 +171,7 @@ exposure <- function(dat, at) {
     # set flow of susceptiple to infected for at 1 and at 2
     # remember at 1 the model is initialised nothing actually happens
     dat$epi$se.flow <- c(0, nExp)
-    dat$epi$e.num[at] <- c(0, sum(active == 1 & status == "e"))
+    dat$epi$e.num <- c(0, sum(active == 1 & status == "e"))
   }
   else {
     dat$epi$se.flow[at] <- nExp

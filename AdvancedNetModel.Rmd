@@ -79,9 +79,31 @@ prop.tent = 1 - prop.isobox
 
 stopifnot(round(n*prop.isobox+n*prop.tent)==n)
 residence = c(rep("isobox", n*prop.isobox), rep("tent", n*prop.tent))
-nw = set.vertex.attribute(nw, "residence", residence)
+
 ```
 
+## Could also think of this problem as people in tents with tent IDs
+```{r}
+# how many tents are there
+tent.capacity = 4
+iso.capacity = 10
+num_of_tents = round(n*prop.tent/tent.capacity)
+num_of_iso = round(n*prop.isobox/iso.capacity)
+
+housing = c(rep(paste0("tent", 1:num_of_tents),tent.capacity),
+            rep(paste0("isobox", 1:num_of_iso), iso.capacity))
+residence = c(rep("tent",num_of_tents*tent.capacity),
+            rep("isobox", num_of_iso*iso.capacity))
+
+housing
+residence
+```
+
+### Set vertex attribute to housing or residence
+```{r}
+nw = set.vertex.attribute(nw, "housing", housing[1:n])
+nw = set.vertex.attribute(nw, "residence", residence[1:n])
+```
 
 
 ## Settting nodal attributes
@@ -161,26 +183,62 @@ For directed networks, see sender and receiver. By default, base = 1 means that 
 statistic for the first node will be omitted, but this argument may be changed to control
 which statistics are included just as for the sender and receiver terms.
 
+## Formation
+
+### Formation by residence/housing
 ```{r message = F}
-formation <- ~edges+
-  concurrent+
-  nodematch("residence", diff = TRUE)+
-  nodemix("residence", base = c(1,3))
+formationType = "housing"
+if (formationType == "residence"){
+  formation <- ~edges+
+    # concurrent+
+    nodefactor("residence")+ # tent stat
+    nodematch("residence") # amount of interaction with same class nodes
+  
+  mean_degree.iso = 10
+  mean_degree.tent = 4
+  residence.iso = sum(residence == "isobox")*mean_degree.iso
+  residence.tent = sum(residence == "tent")*mean_degree.tent
+  
+  mean_degree = (sum(residence == "isobox")*mean_degree.iso+sum(residence == "tent")*mean_degree.tent)/length(residence)
+  concurrent_percentage = 0.1 # % of nodes (people) with a degree of 2 or larger
+  
+  edges = n*mean_degree/2#number of expected edges
+  # concurrent_nodes = n*concurrent_percentage
+  residence.match = edges*1 # 80% of connection people of same class
+  target.stats = c(edges,
+                   # concurrent_nodes,
+                   # residence.iso,
+                   residence.tent,
+                   residence.match)
+  
+} else {
+  formation <- ~edges+
+    nodefactor("residence")+ # iso stat
+    nodematch("housing", diff = FALSE) # amount of interaction with same class nodes
+  
+  mean_degree.iso = 10
+  mean_degree.tent = 4
+  residence.iso = sum(residence == "isobox")*mean_degree.iso
+  residence.tent = sum(residence == "tent")*mean_degree.tent
+  
+  mean_degree = (sum(residence == "isobox")*mean_degree.iso+sum(residence == "tent")*mean_degree.tent)/length(residence)
+  concurrent_percentage = 0.1 # % of nodes (people) with a degree of 2 or larger
+  
+  edges = n*mean_degree/2#number of expected edge
+  
+  residence.match = edges*0.8 # % of connection people of same class,  this value does not do good when btwn 0.8 and 1
+  target.stats = c(edges,
+                   # residence.iso,
+                   residence.tent,
+                   residence.match
+                   )
+}
 
-mean_degree = 2
-concurrent_percentage = 0.5 # % of nodes (people) with a degree of 2 or larger
 
-edges = 120
-concurrent_nodes = 60
-residence.iso = 20*2
-residence.tent = 15*2
-residence.mixing = 6*2
-target.stats = c(edges,
-                 concurrent_nodes,
-                 residence.iso,
-                 residence.tent,
-                 residence.mixing)
+```
 
+
+```{r message = F}
 d.rate = 0.0001
 coef.diss = dissolution_coefs(dissolution = ~offset(edges),
                               duration = 30,
@@ -199,21 +257,36 @@ est1 <- netest(nw,
                coef.diss,
                edapprox = T,
                verbose = F)
+
+summary(est1)
 ```
 
 ## Diagnostics
 ```{r}
 cores = parallel::detectCores()-1
 
-dx = netdx(est1,
-           nsims = 3,
-           nsteps = 180, # simulating 6 months
-           ncores = cores,
-           nwstats.formula = ~edges+concurrent+nodematch("residence", diff = TRUE)+nodemix("residence"))
-plot(dx)
-par(mfrow = c(1,2))
-plot(dx, "duration")
-plot(dx, "dissolution")
+if (formationType == "residence"){
+  dx = netdx(est1,
+             nsims = 3,
+             nsteps = 180, # simulating 6 months
+             ncores = cores,
+             nwstats.formula = ~edges+concurrent+nodefactor("residence", levels = T)+
+               nodematch("residence", diff = T)+nodemix("residence"))
+} else {
+  dx = netdx(est1,
+             nsims = 3,
+             nsteps = 180, # simulating 6 months
+             ncores = cores,
+             nwstats.formula = ~edges+nodefactor("residence", levels = T)+
+               nodematch("housing"))
+}
+
+if (length(dx$stats[[1]])<10){
+  plot(dx)
+  par(mfrow = c(1,2))
+  plot(dx, "duration")
+  plot(dx, "dissolution")
+}
 dx
 ```
 
@@ -241,7 +314,7 @@ param = param.net(act.rate.se = 10,
                   ds.rate = d.rate,
                   dr.rate = d.rate,
                   ratesbyAge = paramsFromData$rates.byAge
-                  ) 
+) 
 
 init = init.net(i.num = 3,
                 r.num = 0,
@@ -250,31 +323,31 @@ init = init.net(i.num = 3,
                 f.num = 0,
                 h.num = 0,
                 q.num = 0
-                )
+)
 ```
 
 
 ```{r echo = F, message = F}
 control = control.net(
-                      nsims = 3, 
-                      nsteps = 60,
-                      # delete.nodes = T,  this does not work for now
-                      ncores = cores,#cores,
-                      initialize.FUN = custom.initialize.net, # this bit is just so that I can extract time
-                      exposure.FUN = exposure,
-                      infect.FUN = infect,
-                      epi.by = "age",
-                      quarantine.FUN = quarantining,
-                      hospitalize.FUN = RequireHospitalization,
-                      recover.FUN = recover,
-                      fatality.FUN = fatality,
-                      recovery.FUN = NULL,
-                      infection.FUN = NULL,
-                      departures.FUN = departures.net,
-                      get_prev.FUN = custom.get_prev.net,
-                      skip_check = FALSE,
-                      depend = T
-                      )
+  nsims = 3, 
+  nsteps = 60,
+  # delete.nodes = T,  this does not work for now
+  ncores = cores,
+  initialize.FUN = custom.initialize.net, # this bit is just so that I can extract time
+  exposure.FUN = exposure,
+  infect.FUN = infect,
+  epi.by = "age",
+  quarantine.FUN = quarantining,
+  hospitalize.FUN = RequireHospitalization,
+  recover.FUN = recover,
+  fatality.FUN = fatality,
+  recovery.FUN = NULL,
+  infection.FUN = NULL,
+  departures.FUN = departures.net,
+  get_prev.FUN = custom.get_prev.net,
+  skip_check = FALSE,
+  depend = T
+)
 
 t0 = Sys.time()
 sim1 = custom.netsim(est1, param, init, control)
@@ -308,9 +381,9 @@ res %>% select(s.num, e.num, i.num, q.num, h.num, r.num, f.num, num, time) %>%
 
 ```{r}
 ggplotly(res %>% select(s.num, e.num, i.num, q.num, h.num, r.num, f.num, num, time) %>%
-  group_by(time) %>% summarise_all(~mean(.)) %>% 
-  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
-  geom_line(size = 1)+scale_color_brewer(palette = "Set1"))
+           group_by(time) %>% summarise_all(~mean(.)) %>% 
+           pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+           geom_line(size = 1)+scale_color_brewer(palette = "Set1"))
 ```
 
 ## Plot by age groups
@@ -329,8 +402,8 @@ res %>% select(contains("f.num.age"), time) %>% group_by(time) %>% summarise_all
 
 ```{r}
 ggplotly(res %>% select(starts_with("num.age"), time) %>% group_by(time) %>% summarise_all(~mean(.)) %>% 
-  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
-  geom_line(size = 1)+scale_color_brewer(palette = "Set1"))
+           pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+           geom_line(size = 1)+scale_color_brewer(palette = "Set1"))
 ```
 
 
@@ -389,8 +462,8 @@ get_times <- function(simulation.object) {
 times = get_times(sim1)
 
 times %>% filter(duration <= 30) %>% ggplot(aes(x = duration)) + 
-    geom_density() + facet_wrap(period_type ~ ., scales = "free_y") + 
-    labs(title = "Duration frequency distributions", subtitle = "Baseline simulation")
+  geom_density() + facet_wrap(period_type ~ ., scales = "free_y") + 
+  labs(title = "Duration frequency distributions", subtitle = "Baseline simulation")
 
 ```
 
@@ -400,14 +473,44 @@ times %>% filter(duration <= 30) %>% ggplot(aes(x = duration)) +
 library(ggnet)
 if (n<400){
   # some mode options are: circle, kamadakawai, fruchtermanreingold
-  plot(sim1, "network", at = 15, vertex.col = "age", legend = T, mode = "kamadakawai")
-  plot(sim1, "network", at = 15, vertex.col = "residence", legend = T, mode = "kamadakawai")
+  plot(sim1, "network", at = 15, vertex.col = "age", legend = T, mode = "fruchtermanreingold")
+  if (formationType == "residence") {
+    plot(sim1, "network", at = 15, vertex.col = "residence", legend = T, mode = "kamadakawai")
+  } else {
+    plot(sim1, "network", at = 15, vertex.col = "housing", legend = T, mode = "fruchtermanreingold")
+  }
+  
 }
 ```
 
+
+#try and plot this by housing
+```{r}
+library(intergraph)
+nwplot = get_network(sim1, at = 1)
+
+nwplot = asIgraph(nwplot)
+
+graph = igraph::graph(nwplot)
+
+```
+
+
+## Network plot by clusters
+
+Ideally would look like ![](https://www.yworks.com/assets/images/landing-pages/demo-clustering-edge-betweenness.54cd9daf.png)
+
+## Get degree distribution
+
+```{r}
+
+```
+
+## Make animation of network
+
 ```{r}
 # dynamic animation of network
-if (n <=200){
+if (n <=200 & formationType == "residence"){
   library(ndtv)
   nw = get_network(sim1)
   nw = color_tea(nw, verbose = F)
@@ -418,7 +521,7 @@ if (n <=200){
   plot.par <- list(mar = c(0, 0, 0, 0))
   
   compute.animation(nw, slice.par = slice.par, verbose = TRUE)
-  race <- get.vertex.attribute(nw, "residence")
+  residence <- get.vertex.attribute(nw, "residence")
   residence.shape <- ifelse(residence == "isobox", 4, 50)
   residence.color = ifelse(residence == "isobox", "red", "green")
   
