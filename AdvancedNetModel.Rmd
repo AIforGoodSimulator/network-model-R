@@ -27,6 +27,7 @@ library(tictoc)
 suppressMessages(library(EpiModel))
 library(incidence)
 library(earlyR)
+
 ```
 
 # Sourcing custom modules
@@ -38,7 +39,7 @@ source("SEIQHRFNetModules.R")
 # Setting very basic network
 
 ```{r}
-n = 200
+n = 50
 nw = network.initialize(n = n, directed = FALSE)
 ```
 
@@ -78,7 +79,7 @@ prop.isobox = round(8100/(8100+10600),2)
 prop.tent = 1 - prop.isobox
 
 stopifnot(round(n*prop.isobox+n*prop.tent)==n)
-residence = c(rep("isobox", n*prop.isobox), rep("tent", n*prop.tent))
+# residence = c(rep("isobox", n*prop.isobox), rep("tent", n*prop.tent))
 
 ```
 
@@ -93,9 +94,16 @@ num_of_iso = round(n*prop.isobox/iso.capacity)
 housing = c(rep(paste0("tent", 1:num_of_tents),tent.capacity),
             rep(paste0("isobox", 1:num_of_iso), iso.capacity))
 residence = c(rep("tent",num_of_tents*tent.capacity),
-            rep("isobox", num_of_iso*iso.capacity))
+              rep("isobox", num_of_iso*iso.capacity))
 
-housing
+## If NA (unallocated) put in tent)
+if (length(housing)<n){
+  housing[(length(housing)+1):n] = paste0("tent", num_of_tents+1)
+  residence[(length(residence)+1):n] = paste0("tent")
+}
+
+
+sort(housing)
 residence
 ```
 
@@ -231,7 +239,7 @@ if (formationType == "residence"){
                    # residence.iso,
                    residence.tent,
                    residence.match
-                   )
+  )
 }
 
 
@@ -473,11 +481,17 @@ times %>% filter(duration <= 30) %>% ggplot(aes(x = duration)) +
 library(ggnet)
 if (n<400){
   # some mode options are: circle, kamadakawai, fruchtermanreingold
-  plot(sim1, "network", at = 15, vertex.col = "age", legend = T, mode = "fruchtermanreingold")
+  plot(sim1, "network", at = 15,
+       vertex.col = "age", legend = T, mode = "fruchtermanreingold",
+       main = "Age")
   if (formationType == "residence") {
-    plot(sim1, "network", at = 15, vertex.col = "residence", legend = T, mode = "kamadakawai")
+    plot(sim1, "network", at = 15,
+         vertex.col = "residence",
+         legend = T, mode = "kamadakawai", main = "Residence")
   } else {
-    plot(sim1, "network", at = 15, vertex.col = "housing", legend = T, mode = "fruchtermanreingold")
+    plot(sim1, "network", at = 15,
+         vertex.col = "housing",
+         legend = T, mode = "kamadakawai", main = "Housing")
   }
   
 }
@@ -486,13 +500,36 @@ if (n<400){
 
 #try and plot this by housing
 ```{r}
+nwt = get_network(sim1)
+net_at_1 = network.collapse(nwt, at = 1)
+
 library(intergraph)
-nwplot = get_network(sim1, at = 1)
 
-nwplot = asIgraph(nwplot)
+graph = asIgraph(net_at_1)
 
-graph = igraph::graph(nwplot)
+library(igraph)
+library(RColorBrewer)
+clp = cluster_label_prop(graph)
 
+pal = brewer.pal(length(unique(housing)), "Accent")
+
+layouts = "layout_as_star(), layout_as_tree(), layout_in_circle(), layout_nicely(), layout_on_grid(), layout_randomly(), layout_with_dh(), layout_with_fr(), layout_with_gem(), layout_with_graphopt(), layout_with_kk(), layout_with_lgl(), layout_with_mds()"
+layouts = strsplit(layouts, "(),", fixed = T)[[1]]
+layouts[length(layouts)] = strsplit(layouts[length(layouts)], "\\()")[[1]]
+
+# I think laayout_with_graphopt is the best
+for (lay in layouts){
+  l = eval(parse(text = paste0(lay, "(graph)")))
+  print(lay)
+  plot(clp, graph,
+       vertex.label = NA,
+       layout = l,
+       edge.color = "gray50",
+       legend = T)
+}
+
+
+detach("package:igraph")
 ```
 
 
