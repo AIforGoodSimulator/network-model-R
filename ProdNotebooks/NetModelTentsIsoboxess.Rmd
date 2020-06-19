@@ -1,0 +1,584 @@
+---
+title: "SEIQRHF Network Model"
+author: "Luis Chaves"
+output: pdf_document
+always_allow_html: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, echo = F, message = F}
+library(tidyverse)
+library(magrittr)
+library(lubridate)
+library(stringr)
+library(tibble)
+library(broom)
+library(ggplot2)
+library(gt)
+library(knitr)
+library(devtools)
+library(DiagrammeR)
+library(parallel)
+library(foreach)
+library(tictoc)
+suppressMessages(library(EpiModel))
+library(incidence)
+library(earlyR)
+
+```
+
+# Sourcing custom modules
+
+```{r}
+source("../Scripts/SEIQHRFNetModules.R")
+```
+
+# Setting very basic network
+
+```{r}
+n = 50
+nw = network.initialize(n = n, directed = FALSE)
+```
+
+## Getting nodal attributes from data
+```{r}
+ageData = read.csv("../Data/age_and_sex.csv") %>% rename(Age = V1, Gender = V2, ID = X)
+
+# I'm just taking Camp 1 data as it seems more complete
+campParams = read.csv("../Data/camp_params.csv") %>% rename(Pop_Proportion = Value) %>%
+  filter(Camp  == "Camp_1", Variable == "Population_structure")
+campParams$Age = gdata::drop.levels(campParams$Age)
+ageGroups = campParams %>%
+  select(Age) %>% as.matrix()
+
+# I'm assuming age groups to be left inclusive
+# and right exclusive but probably does not matter tooo much
+ageData$ageGroup = cut(ageData$Age, breaks = c(0,10,20,30,40,50,60,70,80, Inf))
+
+plot(campParams$Age, campParams$Hosp_given_symptomatic)
+plot(campParams$Age, campParams$Critical_given_hospitalised)
+plot(density(ageData$Age))
+
+paramsFromData = list()
+paramsFromData$age.dist = ageData$ageGroup
+# the two below are in same order as age groups
+paramsFromData$rates.byAge = data.frame(AgeGroup = levels(ageData$ageGroup),
+                                        hosp.rate = campParams$Hosp_given_symptomatic,
+                                        fat.rate = campParams$Critical_given_hospitalised)
+```
+
+## Setting network structure based on how refugees are allocated to tents
+
+**Based on Tucker model (from Manchester U.) **
+Each individual is a member of a household that occupies either an isoboxor a tent. Isoboxes are prefabricated housing units with a mean occupancyof 10 individuals. Tents have a mean occupancy of 4 individuals. A total of 8100 individuals occupy isoboxes, and 10,600 individuals occupy tents. The exact occupancy of each isobox or tent is drawn from a Poisson distribution, and individuals are assigned to isoboxes or tents randomly without regard to sex or age. This is appropriate because many people arrive at Moria travelling alone, and thus isoboxes or tents may not represent family units
+```{r}
+prop.isobox = round(8100/(8100+10600),2)
+prop.tent = 1 - prop.isobox
+
+stopifnot(round(n*prop.isobox+n*prop.tent)==n)
+# residence = c(rep("isobox", n*prop.isobox), rep("tent", n*prop.tent))
+
+```
+
+## Could also think of this problem as people in tents with tent IDs
+```{r}
+# how many tents are there
+tent.capacity = 4
+iso.capacity = 10
+num_of_tents = round(n*prop.tent/tent.capacity)
+num_of_iso = round(n*prop.isobox/iso.capacity)
+
+housing = c(rep(paste0("tent", 1:num_of_tents),tent.capacity),
+            rep(paste0("isobox", 1:num_of_iso), iso.capacity))
+residence = c(rep("tent",num_of_tents*tent.capacity),
+              rep("isobox", num_of_iso*iso.capacity))
+
+## If NA (unallocated) put in tent)
+if (length(housing)<n){
+  housing[(length(housing)+1):n] = paste0("tent", num_of_tents+1)
+  residence[(length(residence)+1):n] = paste0("tent")
+}
+
+
+sort(housing)
+residence
+```
+
+### Set vertex attribute to housing or residence
+```{r}
+nw = set.vertex.attribute(nw, "housing", housing[1:n])
+nw = set.vertex.attribute(nw, "residence", residence[1:n])
+```
+
+
+## Settting nodal attributes
+```{r}
+nw = set.vertex.attribute(nw, "age", sample(as.vector(paramsFromData$age.dist),n))
+```
+
+Explanation of the formation terms (documentation can be found by running `help(edge.terms)` and choosing the ergm option). 
+We'll explain here what some basic terms are and should be:
+
+* `edges`: This term adds one network statistic equal to the number of edges (i.e. nonzero values) in the network. For undirected networks, edges is equal to kstar(1); for directed networks, edges is equal to both ostar(1) and istar(1).
+* `concurrent`: This term adds one network
+statistic to the model, equal to the number of nodes in the network with degree 2 or
+higher. The optional term attrname is a character string giving the name of an attribute
+in the network’s vertex attribute list. If this is specified then the count is the number
+of nodes with ties to at least 2 other nodes with the same value for that attribute as
+the index node. This term can only be used with undirected networks.
+*`isolates`: This term adds one statistic to the model equal to the number of
+isolates in the network. For an undirected network, an isolate is defined to be any node
+with degree zero. For a directed network, an isolate is any node with both in-degree
+and out-degree equal to zero.
+* `meandeg` — Mean vertex degree: This term adds one network statistic to the model
+equal to the average degree of the vertices. Note that this term is a constant multiple
+of both edges and density.
+* `degree(d, attrname)` — Degree: The d argument is a vector of distinct integers.
+This term adds one network statistic to the model for each element in d; the ith such
+statistic equals the number of nodes in the network of degree d[i], i.e. with exactly
+d[i] edges. The term attrname is a character string giving the name of an attribute
+in the network’s vertex attribute list. If this is specified then the degree count is the
+number of nodes with the same value of the attribute as the ego node. This term can
+only be used with undirected networks.
+* `nodemix(attrname, base = NULL)` — **Nodal Attribute Mixing:** The attrname ar-
+gument is a character string giving the name of a categorical attribute in the network’s
+vertex attribute list. **This term adds one network statistic to the model for each possible pairing of attribute values.The statistic equals the number of edges in the network in which the nodes have that pairing of values**. In other words, this term produces
+one statistic for every entry in the mixing matrix for the attribute. The ordering of
+the attribute values is alphabetical (for nominal categories) or numerical (for ordered
+categories). The optional base argument is a vector of integers corresponding to the
+pairings that should not be included. If base contains only negative integers, then these
+integers correspond to the only pairings that should be included. By default (i.e., with
+base = NULL or base = 0), all pairings are included.
+
+*  `nodematch(attrname, diff = FALSE, keep = NULL)` — **Uniform homophily and differential homophily:** The attrname argument is a character string giving the name
+of an attribute in the network’s vertex attribute list. When diff = FALSE, this term
+adds one network statistic to the model, which counts the number of edges (i, j) for
+which attrname(i) == attrname(j). When diff = TRUE, p network statistics are
+added to the model, where p is the number of unique values of the attrname attribute.
+The **kth such statistic counts the number of edges (i, j) for which attrname(i) == attrname(j) == value (k)**, where value(k) is the kth smallest unique value of the
+attribute. If set to non-NULL, the optional keep argument should be a vector of integers
+giving the values of k that should be considered for matches; other values are ignored
+(this works for both diff = FALSE and diff = TRUE. For instance, to add two statistics,
+counting the matches for just the 2nd and 4th categories, use nodematch with diff =
+TRUE and keep = c(2,4).
+
+* `density:` This term adds one network statistic equal to the density of the network. For undirected networks, density equals kstar(1) or edges divided by n(n-1)/2; for directed networks, density equals edges or istar(1) or ostar(1) divided by n(n-1).
+
+* `nodefactor(attrname, base = 1)` — **Main effect of a factor attribute:** The
+attrname argument is a character string giving the name of a categorical attribute
+in the network’s vertex attribute list. This term adds multiple network statistics to the
+model, one for each of (a subset of ) the unique values of the attrname attribute. Each
+of these statistics gives the number of times a vertex with that attribute appears in
+an edge in the network. In particular, for edges whose endpoints both have the same
+attribute value, this value is counted twice. To include all attribute values is usually not a good idea, because the sum of all such statistics equals twice the number of edges and hence a linear dependency would arise in any model also including edges. Thus, the base argument tells which value(s) (numbered in order according to the sort func- tion) should be omitted. The default value, one, means that the smallest (i.e., first in sorted order) attribute value is omitted. For example, if the “fruit” factor has levels “orange”, “apple”, “banana”, and “pear”, then to add just two terms, one for “apple” and one for “pear”, set “banana” and “orange” to the base (remember to sort the values first) by using nodefactor("fruit", base = 2:3). For an analogous term for quantitative vertex attributes, see nodecov. 
+
+* `nodecov(attrname)` — **Main effect of a covariate:** The attrname argument is a
+character string giving the name of a quantitative (not categorical) attribute in the
+network’s vertex attribute list. This term adds a single network statistic to the model
+equaling the sum of attrname(i) and attrname(j) for all edges (i, j) in the network.
+For categorical attributes, see node
+
+* `sociality` - **Undirected degree:** This term adds one net-
+work statistic for each node equal to the number of ties of that node. The optional
+attrname argument is a character string giving the name of an attribute in the net-
+work’s vertex attribute list that takes categorical values. If provided, this term only
+counts ties between nodes with the same value of the attribute (an actor-specific ver-
+sion of the nodematch term). This term can only be used with undirected networks.
+For directed networks, see sender and receiver. By default, base = 1 means that the
+statistic for the first node will be omitted, but this argument may be changed to control
+which statistics are included just as for the sender and receiver terms.
+
+## Formation
+
+### Formation by residence/housing
+```{r message = F}
+formationType = "housing"
+if (formationType == "residence"){
+  formation <- ~edges+
+    # concurrent+
+    nodefactor("residence")+ # tent stat
+    nodematch("residence") # amount of interaction with same class nodes
+  
+  mean_degree.iso = 10
+  mean_degree.tent = 4
+  residence.iso = sum(residence == "isobox")*mean_degree.iso
+  residence.tent = sum(residence == "tent")*mean_degree.tent
+  
+  mean_degree = (sum(residence == "isobox")*mean_degree.iso+sum(residence == "tent")*mean_degree.tent)/length(residence)
+  concurrent_percentage = 0.1 # % of nodes (people) with a degree of 2 or larger
+  
+  edges = n*mean_degree/2#number of expected edges
+  # concurrent_nodes = n*concurrent_percentage
+  residence.match = edges*1 # 80% of connection people of same class
+  target.stats = c(edges,
+                   # concurrent_nodes,
+                   # residence.iso,
+                   residence.tent,
+                   residence.match)
+  
+} else {
+  formation <- ~edges+
+    nodefactor("residence")+ # iso stat
+    nodematch("housing", diff = FALSE) # amount of interaction with same class nodes
+  
+  mean_degree.iso = 10
+  mean_degree.tent = 4
+  residence.iso = sum(residence == "isobox")*mean_degree.iso
+  residence.tent = sum(residence == "tent")*mean_degree.tent
+  
+  mean_degree = (sum(residence == "isobox")*mean_degree.iso+sum(residence == "tent")*mean_degree.tent)/length(residence)
+  concurrent_percentage = 0.1 # % of nodes (people) with a degree of 2 or larger
+  
+  edges = n*mean_degree/2#number of expected edge
+  
+  residence.match = edges*0.8 # % of connection people of same class,  this value does not do good when btwn 0.8 and 1
+  target.stats = c(edges,
+                   # residence.iso,
+                   residence.tent,
+                   residence.match
+  )
+}
+
+
+```
+
+
+```{r message = F}
+d.rate = 0.0001
+coef.diss = dissolution_coefs(dissolution = ~offset(edges),
+                              duration = 30,
+                              d.rate = d.rate) # this correspond to external deaths
+```
+
+## Building network and properly fitting network to stats
+**From `netest` documentation (help(netest))**
+The edges dissolution approximation method is described in Carnegie et al. This approximation requires that the dissolution coefficients are known, that the formation model is being fit to cross-sectional data conditional on those dissolution coefficients, and that the terms in the dissolution model are a subset of those in the formation model. Under certain additional conditions, the formation coefficients of a STERGM model are approximately equal to the coefficients of that same model fit to the observed cross-sectional data as an ERGM, minus the corresponding coefficients in the dissolution model. The approximation thus estimates this ERGM (which is typically much faster than estimating a STERGM) and subtracts the dissolution coefficients.
+
+**The conditions under which this approximation best hold are when there are few relational changes from one time step to another; i.e. when either average relational durations are long, or density is low, or both.** Conveniently, these are the same conditions under which STERGM estimation is slowest. Note that the same approximation is also used to obtain starting values for the STERGM estimate when the latter is being conducted. The estimation does not allow for calculation of standard errors, p-values, or likelihood for the formation model; thus, this approach is of most use when the main goal of estimation is to drive dynamic network simulations rather than to conduct inference on the formation model. The user is strongly encouraged to examine the behavior of the resulting simulations to confirm that the approximation is adequate for their purposes. For an example, see the vignette for the package tergm.
+```{r message = F, echo = F}
+est1 <- netest(nw,
+               formation,
+               target.stats,
+               coef.diss,
+               edapprox = T,
+               verbose = F)
+
+summary(est1)
+```
+
+## Diagnostics
+```{r}
+cores = parallel::detectCores()-1
+
+if (formationType == "residence"){
+  dx = netdx(est1,
+             nsims = 3,
+             nsteps = 180, # simulating 6 months
+             ncores = cores,
+             nwstats.formula = ~edges+concurrent+nodefactor("residence", levels = T)+
+               nodematch("residence", diff = T)+nodemix("residence"))
+} else {
+  dx = netdx(est1,
+             nsims = 3,
+             nsteps = 180, # simulating 6 months
+             ncores = cores,
+             nwstats.formula = ~edges+nodefactor("residence", levels = T)+
+               nodematch("housing"))
+}
+
+if (length(dx$stats[[1]])<10){
+  plot(dx)
+  par(mfrow = c(1,2))
+  plot(dx, "duration")
+  plot(dx, "dissolution")
+}
+dx
+```
+
+## Running epidemic
+
+```{r}
+param = param.net(act.rate.se = 10,
+                  inf.prob.se = 0.02,
+                  act.rate.si = 10,
+                  inf.prob.si = 0.05,
+                  act.rate.sq = 2.5,
+                  inf.prob.sq = 0.02,
+                  ei.rate = 1/10,
+                  iq.rate = 1/30, #c(rep(1/30, 60), rep(15/30, 120)), # time varying works
+                  ih.rate = 1/100,
+                  qh.rate = 1/100,
+                  hr.rate = 1/15,
+                  qr.rate = 1/20,
+                  hf.rate = 1/50,
+                  hf.rate.overcap = 1/25,
+                  hosp.cap = 5,
+                  hosp.tcoeff = 0.5,
+                  a.rate = 0,
+                  di.rate = d.rate,
+                  ds.rate = d.rate,
+                  dr.rate = d.rate,
+                  ratesbyAge = paramsFromData$rates.byAge
+) 
+
+init = init.net(i.num = 3,
+                r.num = 0,
+                e.num = 0,
+                s.num = n - 3,
+                f.num = 0,
+                h.num = 0,
+                q.num = 0
+)
+```
+
+
+```{r echo = F, message = F}
+control = control.net(
+  nsims = 3, 
+  nsteps = 60,
+  # delete.nodes = T,  this does not work for now
+  ncores = cores,
+  initialize.FUN = custom.initialize.net, # this bit is just so that I can extract time
+  exposure.FUN = exposure,
+  infect.FUN = infect,
+  epi.by = "age",
+  quarantine.FUN = quarantining,
+  hospitalize.FUN = RequireHospitalization,
+  recover.FUN = recover,
+  fatality.FUN = fatality,
+  recovery.FUN = NULL,
+  infection.FUN = NULL,
+  departures.FUN = departures.net,
+  get_prev.FUN = custom.get_prev.net,
+  skip_check = FALSE,
+  depend = T
+)
+
+t0 = Sys.time()
+sim1 = custom.netsim(est1, param, init, control)
+```
+
+
+```{r}
+print(Sys.time()-t0)
+res = as.data.frame(sim1)
+
+# to debug: 
+# Warning in dat$epi$e.num[at] <- c(0, sum(active == 1 & status == "e")) :
+# number of items to replace is not a multiple of replacement length
+
+# The simulation time really goes up with the number of edges
+```
+
+```{r echo = F, message = F}
+library(ggplot2)
+library(plotly)
+theme_set(theme_bw())
+```
+
+```{r}
+res %>% select(s.num, e.num, i.num, q.num, h.num, r.num, f.num, num, time) %>%
+  group_by(time) %>% summarise_all(~mean(.)) %>% 
+  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+  geom_line(size = 1)+scale_color_brewer(palette = "Set1")
+```
+
+
+```{r}
+ggplotly(res %>% select(s.num, e.num, i.num, q.num, h.num, r.num, f.num, num, time) %>%
+           group_by(time) %>% summarise_all(~mean(.)) %>% 
+           pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+           geom_line(size = 1)+scale_color_brewer(palette = "Set1"))
+```
+
+## Plot by age groups
+
+```{r}
+res %>% select(contains("i.num.age"), time) %>% group_by(time) %>% summarise_all(~mean(.)) %>% 
+  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+  geom_line(size = 1)+scale_color_brewer(palette = "Set1")
+```
+
+```{r}
+res %>% select(contains("f.num.age"), time) %>% group_by(time) %>% summarise_all(~mean(.)) %>% 
+  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+  geom_line(size = 1)+scale_color_brewer(palette = "Set1")
+```
+
+```{r}
+ggplotly(res %>% select(starts_with("num.age"), time) %>% group_by(time) %>% summarise_all(~mean(.)) %>% 
+           pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+           geom_line(size = 1)+scale_color_brewer(palette = "Set1"))
+```
+
+
+# For diagnostics
+```{r}
+get_times <- function(simulation.object) {
+  
+  sim <- simulation.object
+  
+  for (s in 1:sim$control$nsims) {
+    if (s == 1) {
+      times <- sim$times[[paste0("sim", s)]]
+      times <- times %>% mutate(s = s)
+    } else {
+      times <- times %>% bind_rows(sim$times[[paste("sim", 
+                                                    s, sep = "")]] %>% mutate(s = s))
+    }
+  }
+  
+  times <- times %>%
+    mutate(infTime = ifelse(infTime < 0, -5, infTime),
+           expTime = ifelse(expTime < 0, -5, expTime)) %>% 
+    mutate(incubation_period = infTime - expTime,
+           illness_duration = recTime - expTime,
+           illness_duration_hosp = dischTime - expTime, 
+           hosp_los = dischTime - hospTime,
+           quarantine_delay = quarTime - infTime,
+           survival_time = fatTime - infTime) %>% 
+    select(s,
+           incubation_period,
+           quarantine_delay,
+           illness_duration, 
+           illness_duration_hosp,
+           hosp_los,
+           survival_time) %>% 
+    pivot_longer(-s, names_to = "period_type", values_to = "duration") %>% 
+    mutate(period_type = factor(period_type,
+                                levels = c("incubation_period", 
+                                           "quarantine_delay",
+                                           "illness_duration",
+                                           "illness_duration_hosp", 
+                                           "hosp_los",
+                                           "survival_time"),
+                                labels = c("Incubation period", 
+                                           "Delay entering isolation",
+                                           "Illness duration",
+                                           "Illness duration (hosp)", 
+                                           "Hospital care required duration",
+                                           "Survival time of case fatalities"), 
+                                ordered = TRUE))
+  return(times)
+}
+```
+
+```{r}
+times = get_times(sim1)
+
+times %>% filter(duration <= 30) %>% ggplot(aes(x = duration)) + 
+  geom_density() + facet_wrap(period_type ~ ., scales = "free_y") + 
+  labs(title = "Duration frequency distributions", subtitle = "Baseline simulation")
+
+```
+
+
+
+```{r}
+library(ggnet)
+if (n<400){
+  # some mode options are: circle, kamadakawai, fruchtermanreingold
+  plot(sim1, "network", at = 15,
+       vertex.col = "age", legend = T, mode = "fruchtermanreingold",
+       main = "Age")
+  if (formationType == "residence") {
+    plot(sim1, "network", at = 15,
+         vertex.col = "residence",
+         legend = T, mode = "kamadakawai", main = "Residence")
+  } else {
+    plot(sim1, "network", at = 15,
+         vertex.col = "housing",
+         legend = T, mode = "kamadakawai", main = "Housing")
+  }
+  
+}
+```
+
+
+#try and plot this by housing
+```{r}
+nwt = get_network(sim1)
+net_at_1 = network.collapse(nwt, at = 1)
+
+library(intergraph)
+
+graph = asIgraph(net_at_1)
+
+library(igraph)
+library(RColorBrewer)
+clp = cluster_label_prop(graph)
+
+pal = brewer.pal(length(unique(housing)), "Accent")
+
+layouts = "layout_as_star(), layout_as_tree(), layout_in_circle(), layout_nicely(), layout_on_grid(), layout_randomly(), layout_with_dh(), layout_with_fr(), layout_with_gem(), layout_with_graphopt(), layout_with_kk(), layout_with_lgl(), layout_with_mds()"
+layouts = strsplit(layouts, "(),", fixed = T)[[1]]
+layouts[length(layouts)] = strsplit(layouts[length(layouts)], "\\()")[[1]]
+
+# I think laayout_with_graphopt is the best
+for (lay in layouts){
+  l = eval(parse(text = paste0(lay, "(graph)")))
+  print(lay)
+  plot(clp, graph,
+       vertex.label = NA,
+       layout = l,
+       edge.color = "gray50",
+       legend = T)
+}
+
+
+detach("package:igraph")
+```
+
+
+## Network plot by clusters
+
+Ideally would look like ![](https://www.yworks.com/assets/images/landing-pages/demo-clustering-edge-betweenness.54cd9daf.png)
+
+## Get degree distribution
+
+```{r}
+
+```
+
+## Make animation of network
+
+```{r}
+# dynamic animation of network
+if (n <=200 & formationType == "residence"){
+  library(ndtv)
+  nw = get_network(sim1)
+  nw = color_tea(nw, verbose = F)
+  
+  slice.par <- list(start = 1, end = 25, interval = 1, 
+                    aggregate.dur = 1, rule = "any")
+  render.par <- list(tween.frames = 10, show.time = FALSE)
+  plot.par <- list(mar = c(0, 0, 0, 0))
+  
+  compute.animation(nw, slice.par = slice.par, verbose = TRUE)
+  residence <- get.vertex.attribute(nw, "residence")
+  residence.shape <- ifelse(residence == "isobox", 4, 50)
+  residence.color = ifelse(residence == "isobox", "red", "green")
+  
+  age <- get.vertex.attribute(nw, "age")
+  
+  render.d3movie(
+    nw,
+    render.par = render.par,
+    plot.par = plot.par,
+    vertex.sides = residence.shape,
+    vertex.col = residence.color,
+    edge.col = "darkgrey",
+    vertex.border = "lightgrey",
+    displaylabels = FALSE,
+    filename = paste0(getwd(), "/movie.html"))
+}
+
+```
+
+
+
+
+

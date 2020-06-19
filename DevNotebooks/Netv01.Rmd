@@ -1,0 +1,483 @@
+---
+title: "SEIQRHF Network Model"
+author: "Luis Chaves"
+output:
+  html_document:
+    df_print: paged
+always_allow_html: yes
+---
+
+```{r doc_options, echo = F, message = F}
+knitr::opts_chunk$set(echo = T, warning = F, message  = F)
+```
+
+
+```{r packages}
+
+library(tidyverse) # useful for general R
+library(EpiModel) # EpiModel package
+library(parallel) # for parallel processing where applicable
+library(plotly) # for interactive plots
+library(foreach)
+theme_set(theme_bw())
+
+if("igraph" %in% (.packages())){ # igraph sometimes clashes with the statnet and the network package
+  detach("package:igraph", unload=TRUE) 
+}
+
+calculate.max.edges = function(n){
+  return (n*(n-1)/2)
+}
+```
+
+# Modelling COVID-19 spread in the Moria refugee camp
+
+This model builds on previous knowledge acquired through weeks of work and therefore does not aim to be an instructive piece for beginers to EpiModel. For the old notebooks that were used to build knowledge please see Archive/DevNotebooks00.
+
+## Population structure & attributes
+
+### Read in data
+
+At this time we have individual information on age, gender and aggregate data on ethnicity.
+```{r}
+# age and gender data
+ageData = read.csv("../Data/age_and_sex.csv") %>% rename(Age = V1, Gender = V2, ID = X)
+
+# camp parameters: hospitalisation rate and fatality rate by Age group, from Nick in AI4GOOD team
+campParams = read.csv("../Data/camp_params.csv") %>% rename(Pop_Proportion = Value) %>%
+  filter(Camp  == "Camp_1", Variable == "Population_structure")
+campParams$Age = gdata::drop.levels(campParams$Age)
+
+# processing of the age data to be put into 10 year age bins
+ageGroups = campParams %>%
+  select(Age) %>% as.matrix()
+
+# left inclusive and right exclusive cuts
+ageData$ageGroup = cut(ageData$Age, breaks = c(0,10,20,30,40,50,60,70,80, Inf))
+```
+
+### Visualise age distributions and risk by age group
+
+```{r}
+plot(as.factor(campParams$Age), campParams$Hosp_given_symptomatic,
+     main = "Hospitalisation rate by age group",
+     ylab = 'Hospitalisation rate', xlab = 'Age group')
+
+plot(as.factor(campParams$Age), campParams$Critical_given_hospitalised,
+     main = "Fatality rate by age group",
+     ylab = 'Fatality rate', xlab = 'Age group')
+
+plot(density(ageData$Age), main = "Distribution of age in Moria camp",
+     xlab = 'Age', ylab = 'Density')
+```
+
+### Put parameters into data frame
+```{r}
+paramsFromData = list()
+paramsFromData$age.dist = ageData$ageGroup
+# the two below are in same order as age groups
+paramsFromData$rates.byAge = data.frame(AgeGroup = levels(ageData$ageGroup),
+                                        hosp.rate = campParams$Hosp_given_symptomatic,
+                                        fat.rate = campParams$Critical_given_hospitalised)
+```
+
+## Network structure based on housing allocation
+
+Individuals in Moria live in either tents or isoboxes, with a capacity of 4 and 10 respectively. In this model we attribute each person to a housing unit which is represented by a unique name (e.g. tent1, tent2, isobox4...). From the Tucker model, we know that 8100 indviduals occupy isoboxes and 10600 are in tents (total of 18700). We can also use this numbers to make proportions by housing unit and build smaller networks (less individuals).
+
+_Note:_ For convenience, we will define here `n`, the number of individuals in the simulated network. In experiments, this number equals to number of individuals in Moria.
+
+```{r}
+n = 50
+```
+
+
+```{r}
+prop.isobox = round(8100/(8100+10600),2) # prop. of people in isobox
+prop.tent = 1 - prop.isobox # prop. of people in tent
+
+cat(paste0("Proportion of people in isoboxes: ", prop.isobox, "\n",
+          "Proportion of people in tents:", prop.tent, "\n"))
+```
+
+### Making the housing attribute vectors
+
+The number of tents and the number of isoboxes are calculated as:
+$$N_{tents} = \frac{\text{Number of people in tents}}{\text{tent capacity}} = \frac{n\cdot Prop_{tents}}{tent_{capacity}}\\  N_{isobox} = \frac{\text{Number of people in isoboxes}}{\text{isobox capacity}}= \frac{n\cdot Prop_{isobox}}{isobox_{capacity}}$$
+
+_Note_: this are rounded to get integer values.
+
+```{r}
+tent.capacity = 4
+iso.capacity = 10
+
+num_of_iso = round(n*prop.isobox/iso.capacity) # number of isoboxes
+num_of_tents = round(n*prop.tent/tent.capacity) # number of tents
+
+if (n > num_of_iso*iso.capacity+num_of_tents*tent.capacity){
+  num_of_tents = num_of_tents+1
+}
+
+num_in_iso = num_of_iso*iso.capacity
+num_in_tents = n - num_in_iso # num_of_tents*tent.capacity 
+
+cat(paste0(
+          "Number of tents: ", num_of_tents, "\n",
+          "Number of isoboxes: ", num_of_iso, "\n",
+          "Number of people in tents: ", num_in_tents, "\n",
+          "Number of people in isoboxes: ", num_in_iso, "\n\n",
+          "Number of housing units in total: ", num_of_iso+num_of_tents))
+```
+
+## Allocating people to rooms
+```{r}
+iso_ids = 1:num_of_iso
+tent_ids = 1:num_of_tents 
+
+
+housing_iso = apportion_lr(
+                      vector.length = num_in_iso,
+                      values = iso_ids,
+                      proportions = rep(1/(num_of_iso), num_of_iso)
+                      )
+housing_iso = paste0("iso", housing_iso)
+                  
+
+housing_tents = apportion_lr(
+                        vector.length = num_in_tents,
+                        values = tent_ids,
+                        proportions = rep(1/(num_of_tents), num_of_tents)
+                        )
+housing_tents = paste0("tent", housing_tents)
+                       
+
+housing = c(housing_iso,housing_tents)
+
+# residence vector to keep track of those in tents and isos
+residence = c(rep("iso", num_in_iso), rep("tent", num_in_tents))
+
+plot(table(housing),
+     main = "Number of people per housing unit",
+     ylab = "Number of people",
+     xlab = "Housing ID",
+     )
+grid()
+
+```
+
+## Creating network and setting node attributes
+
+```{r}
+nw = network.initialize(n = n, directed = FALSE)
+
+# housing
+nw = set.vertex.attribute(nw, "housing", housing)
+# age
+nw = set.vertex.attribute(nw, "age", sample(as.vector(paramsFromData$age.dist),n))
+```
+
+## Setting edge formation dynamics
+```{r}
+formation = ~edges + 
+  offset(nodematch("housing", diff = F))
+
+## max in-house ties
+max.inhouse.edges = 0
+for (num_in_house in table(housing)){
+  max.inhouse.edges = max.inhouse.edges + calculate.max.edges(num_in_house)
+}
+
+# default degrees in housing units as per current occupancy
+## The degree of a node in a network is the number of connections it has to other nodes
+# the -1 is tou account fr the lack of connection to one-self
+iso.default.degree = mean(table(housing)[iso_ids]-1)
+tent.default.degree = mean(table(housing)[tent_ids]-1)
+
+# number of external contacts per person in average
+external.contacts = 4
+
+mean_degree.iso =  iso.default.degree + external.contacts
+mean_degree.tent =  tent.default.degree + external.contacts
+
+# calculate mean degree
+mean_degree = (num_in_iso*mean_degree.iso+
+                 num_in_tents*mean_degree.tent)/n
+
+expected.edges = n*mean_degree/2
+
+target.stats = c(expected.edges)
+
+d.rate = 0
+coef.diss = dissolution_coefs(dissolution = ~offset(edges)+
+                                offset(nodematch("housing", diff = F)),
+                              duration = c(2, 1e9),
+                              d.rate = d.rate)
+```
+
+# Network estimation step
+```{r}
+est <- netest(nw,
+               formation,
+               target.stats,
+               coef.diss,
+               coef.form = Inf,
+               set.control.ergm = control.ergm(MCMLE.maxit = 500)
+               )
+summary(est)
+# mcmc.diagnostics(est1$fit)
+```
+
+### Network diagnostics
+
+Do our network simulation match our target statistics?
+```{r}
+cores = parallel::detectCores()-1
+
+dx <- netdx(est,
+              nsims = 1e3,
+              nsteps = 90,
+              ncores = cores,
+              dynamic = FALSE,
+              nwstats.formula = ~edges + nodematch("housing", diff = FALSE),
+              set.control.ergm = control.simulate.ergm(MCMC.burnin = 1e6),
+            keep.tnetwork = T)
+
+print(dx) # diagnostics table
+
+plot(dx) # diagnostics plot
+
+```
+
+## Simulating epidemic in our dynamic network
+
+First we import our custom modules
+```{r}
+source("../Scripts/SEIQHRFNetModules.R")
+```
+
+Next we set our epidemic parameters
+```{r}
+param = param.net(act.rate.se = 10,
+                  inf.prob.se = 0.02,
+                  act.rate.si = 10,
+                  inf.prob.si = 0.05,
+                  act.rate.sq = 2.5,
+                  inf.prob.sq = 0.02,
+                  ei.rate = 1/10,
+                  iq.rate = 1/30, #c(rep(1/30, 60), rep(15/30, 120)), # time varying works
+                  ih.rate = 1/100,
+                  qh.rate = 1/100,
+                  hr.rate = 1/15,
+                  qr.rate = 1/20,
+                  hf.rate = 0,#1/50,
+                  hf.rate.overcap = 0,# 1/25,
+                  hosp.cap = 5,
+                  hosp.tcoeff = 0.5,
+                  a.rate = 0,
+                  di.rate = d.rate,
+                  ds.rate = d.rate,
+                  dr.rate = d.rate,
+                  ratesbyAge = paramsFromData$rates.byAge
+) 
+
+init = init.net(i.num = 3,
+                r.num = 0,
+                e.num = 0,
+                s.num = n - 3,
+                f.num = 0,
+                h.num = 0,
+                q.num = 0
+)
+```
+
+
+```{r echo = F, message = F}
+control = control.net(
+  nsims = 3, 
+  nsteps = 90,
+  # delete.nodes = T,  this does not work for now
+  ncores = cores,
+  initialize.FUN = custom.initialize.net, # this bit is just so that I can extract time
+  exposure.FUN = exposure,
+  infect.FUN = infect,
+  epi.by = "age",
+  quarantine.FUN = quarantining,
+  hospitalize.FUN = RequireHospitalization,
+  recover.FUN = recover,
+  fatality.FUN = fatality,
+  recovery.FUN = NULL,
+  infection.FUN = NULL,
+  departures.FUN = departures.net,
+  get_prev.FUN = custom.get_prev.net,
+  skip_check = FALSE,
+  depend = T
+)
+
+t0 = Sys.time()
+sim = custom.netsim(est, param, init, control)
+```
+
+
+```{r}
+print(Sys.time()-t0) # roughly 30 minutes for n = 1000 and nsteps = 60
+res = as.data.frame(sim)
+```
+
+## Some more network diagnostic
+
+```{r}
+nw_sim <- get_network(sim)
+df_sim <- as.data.frame(nw_sim)
+
+color <- nw_sim %v% "housing"
+summary(df_sim$duration[which(color[df_sim$head] == color[df_sim$tail])])
+summary(df_sim$duration[which(color[df_sim$head] != color[df_sim$tail])])
+```
+
+
+
+## Results visualisation
+
+### Overall numbers for each tracked state
+```{r}
+ggplotly(
+  res %>% select(s.num, e.num, i.num, q.num, h.num, r.num, f.num, num, time) %>%
+  group_by(time) %>% summarise_all(~mean(.)) %>% 
+  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+  geom_line(size = 1)+scale_color_brewer(palette = "Set1")
+)
+```
+
+### Characteristic curves
+```{r}
+get_times <- function(simulation.object) {
+  
+  sim <- simulation.object
+  
+  for (s in 1:sim$control$nsims) {
+    if (s == 1) {
+      times <- sim$times[[paste0("sim", s)]]
+      times <- times %>% mutate(s = s)
+    } else {
+      times <- times %>% bind_rows(sim$times[[paste("sim", 
+                                                    s, sep = "")]] %>% mutate(s = s))
+    }
+  }
+  
+  times <- times %>%
+    mutate(infTime = ifelse(infTime < 0, -5, infTime),
+           expTime = ifelse(expTime < 0, -5, expTime)) %>% 
+    mutate(incubation_period = infTime - expTime,
+           illness_duration = recTime - expTime,
+           illness_duration_hosp = dischTime - expTime, 
+           hosp_los = dischTime - hospTime,
+           quarantine_delay = quarTime - infTime,
+           survival_time = fatTime - infTime) %>% 
+    select(s,
+           incubation_period,
+           quarantine_delay,
+           illness_duration, 
+           illness_duration_hosp,
+           hosp_los,
+           survival_time) %>% 
+    pivot_longer(-s, names_to = "period_type", values_to = "duration") %>% 
+    mutate(period_type = factor(period_type,
+                                levels = c("incubation_period", 
+                                           "quarantine_delay",
+                                           "illness_duration",
+                                           "illness_duration_hosp", 
+                                           "hosp_los",
+                                           "survival_time"),
+                                labels = c("Incubation period", 
+                                           "Delay entering isolation",
+                                           "Illness duration",
+                                           "Illness duration (hosp)", 
+                                           "Hospital care required duration",
+                                           "Survival time of case fatalities"), 
+                                ordered = TRUE))
+  return(times)
+}
+```
+
+```{r}
+times = get_times(sim)
+
+times %>% filter(duration <= 30) %>% ggplot(aes(x = duration)) + 
+  geom_density() + facet_wrap(period_type ~ ., scales = "free_y") + 
+  labs(title = "Duration frequency distributions", subtitle = "Baseline simulation")
+
+```
+
+## Network visualisation
+
+As a heatmap
+```{r}
+nw_object = get_network(sim)
+net_at_1 = network.collapse(nw_object, at = 2)
+
+graph = intergraph::asIgraph(net_at_1)
+
+adj = igraph::as_adjacency_matrix(graph, sparse = F)
+colnames(adj) = igraph::V(graph)$housing
+rownames(adj) = igraph::V(graph)$housing
+
+adj = adj[order(rownames(adj)), order(colnames(adj))]
+
+pheatmap::pheatmap(adj,
+         color = c("grey50","black"),
+         border_color = "white",
+         angle_col = 45,
+         angle_row = 45,
+         fontsize = 6,
+         legend_breaks = c(0,1),
+         legend = F,
+         cluster_rows = F,
+         cluster_cols = F,
+         show_rownames = ifelse(n<100, T, F),
+         show_colnames = ifelse(n<100, T, F))
+
+```
+
+## Network heatmap GIF
+
+```{r, animation.hook="gifski"}
+library(animation)
+
+nw_object = get_network(sim)
+ani.record(reset = TRUE)  # clear history before recording
+for (at in c(1:30)){
+  
+  net_at = network.collapse(nw_object, at = at)
+  graph = intergraph::asIgraph(net_at)
+  adj = igraph::as_adjacency_matrix(graph, sparse = F)
+  
+  colnames(adj) = igraph::V(graph)$housing
+  rownames(adj) = igraph::V(graph)$housing
+  
+  adj = adj[order(rownames(adj)), order(colnames(adj))]
+  
+  pheatmap::pheatmap(adj,
+           color = c("grey50","black"),
+           border_color = "white",
+           angle_col = 45,
+           angle_row = 45,
+           fontsize = 6,
+           legend_breaks = c(0,1),
+           legend = F,
+           cluster_rows = F,
+           cluster_cols = F,
+           show_rownames = ifelse(n<100, T, F),
+           show_colnames = ifelse(n<100, T, F))
+  ani.record()
+}
+
+oopts = ani.options(interval = 0.5)
+```
+
+
+```{r }
+# ani.replay()
+# saveHTML(ani.replay(), img.name = "record_plot")
+
+```
+
