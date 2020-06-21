@@ -61,6 +61,7 @@ custom_discord_edgelist <- function(dat, at, from = "i") {
 
 # Define custom function for exposure from different state ----------------
 FromXToExposed = function(dat, at, finalProb, from.state = "i"){
+  # utility function for exposure module
   
   active <- dat$attr$active
   # get their status (s, i, r...)
@@ -128,7 +129,7 @@ exposure <- function(dat, at) {
                         dat$param$inf.prob.si,
                         dat$param$inf.prob)
   
-  # get act rate (~contact rate) from relevant substate
+  # get act rate (~contact rate) from relevant sub-state
   actRate.se <- ifelse(!is.null(dat$param$act.rate.se), 
                        dat$param$act.rate.se, 
                        ifelse(!is.null(dat$param$act.rate.si),
@@ -168,8 +169,8 @@ exposure <- function(dat, at) {
 
   # Store results from this iteration and carry on --------------------------
   if (at == 2) {
-    # set flow of susceptiple to infected for at 1 and at 2
-    # remember at 1 the model is initialised nothing actually happens
+    # set flow of susceptible to infected for at 1 and at 2
+    # remember at 1 the model is initialized nothing actually happens
     dat$epi$se.flow <- c(0, nExp)
     dat$epi$e.num <- c(0, sum(active == 1 & status == "e"))
   }
@@ -191,7 +192,7 @@ infect = function(dat, at){
   
   # Get active nodes and their status ---------------------------------------
   
-  # active nodess
+  # active nodes
   active <- dat$attr$active
   # get status too (s, i, r, e)
   status <- dat$attr$status
