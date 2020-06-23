@@ -1,0 +1,243 @@
+
+
+processing file: Netv01_cluster.Rmd
+── Attaching packages ─────────────────────────────────────── tidyverse 1.2.1 ──
+✔ ggplot2 3.3.0     ✔ purrr   0.3.3
+✔ tibble  3.0.1     ✔ dplyr   0.8.5
+✔ tidyr   1.0.2     ✔ stringr 1.4.0
+✔ readr   1.3.1     ✔ forcats 0.5.0
+── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+✖ dplyr::filter() masks stats::filter()
+✖ dplyr::lag()    masks stats::lag()
+Loading required package: deSolve
+Loading required package: networkDynamic
+Loading required package: network
+network: Classes for Relational Data
+Version 1.16.0 created on 2019-11-30.
+copyright (c) 2005, Carter T. Butts, University of California-Irvine
+                    Mark S. Handcock, University of California -- Los Angeles
+                    David R. Hunter, Penn State University
+                    Martina Morris, University of Washington
+                    Skye Bender-deMoll, University of Washington
+ For citation information, type citation("network").
+ Type help("network-package") to get started.
+
+
+networkDynamic: version 0.10.1, created on 2020-01-16
+Copyright (c) 2020, Carter T. Butts, University of California -- Irvine
+                    Ayn Leslie-Cook, University of Washington
+                    Pavel N. Krivitsky, University of Wollongong
+                    Skye Bender-deMoll, University of Washington
+                    with contributions from
+                    Zack Almquist, University of California -- Irvine
+                    David R. Hunter, Penn State University
+                    Li Wang
+                    Kirk Li, University of Washington
+                    Steven M. Goodreau, University of Washington
+                    Jeffrey Horner
+                    Martina Morris, University of Washington
+Based on "statnet" project software (statnet.org).
+For license and citation information see statnet.org/attribution
+or type citation("networkDynamic").
+
+Loading required package: tergm
+Loading required package: ergm
+
+ergm: version 3.10.4, created on 2019-06-10
+Copyright (c) 2019, Mark S. Handcock, University of California -- Los Angeles
+                    David R. Hunter, Penn State University
+                    Carter T. Butts, University of California -- Irvine
+                    Steven M. Goodreau, University of Washington
+                    Pavel N. Krivitsky, University of Wollongong
+                    Martina Morris, University of Washington
+                    with contributions from
+                    Li Wang
+                    Kirk Li, University of Washington
+                    Skye Bender-deMoll, University of Washington
+                    Chad Klumb
+Based on "statnet" project software (statnet.org).
+For license and citation information see statnet.org/attribution
+or type citation("ergm").
+
+NOTE: Versions before 3.6.1 had a bug in the implementation of the bd()
+constriant which distorted the sampled distribution somewhat. In
+addition, Sampson's Monks datasets had mislabeled vertices. See the
+NEWS and the documentation for more details.
+
+NOTE: Some common term arguments pertaining to vertex attribute and
+level selection have changed in 3.10.0. See terms help for more
+details. Use 'options(ergm.term=list(version="3.9.4"))' to use old
+behavior.
+
+
+tergm: version 3.6.1, created on 2019-06-12
+Copyright (c) 2019, Pavel N. Krivitsky, University of Wollongong
+                    Mark S. Handcock, University of California -- Los Angeles
+                    with contributions from
+                    David R. Hunter, Penn State University
+                    Steven M. Goodreau, University of Washington
+                    Martina Morris, University of Washington
+                    Nicole Bohme Carnegie, New York University
+                    Carter T. Butts, University of California -- Irvine
+                    Ayn Leslie-Cook, University of Washington
+                    Skye Bender-deMoll
+                    Li Wang
+                    Kirk Li, University of Washington
+Based on "statnet" project software (statnet.org).
+For license and citation information see statnet.org/attribution
+or type citation("tergm").
+
+
+Attaching package: 'plotly'
+
+The following object is masked from 'package:ggplot2':
+
+    last_plot
+
+The following object is masked from 'package:stats':
+
+    filter
+
+The following object is masked from 'package:graphics':
+
+    layout
+
+
+Attaching package: 'foreach'
+
+The following objects are masked from 'package:purrr':
+
+    accumulate, when
+
+Unable to match target stats. Using MCMLE estimation.
+Starting maximum pseudolikelihood estimation (MPLE):
+Evaluating the predictor and response matrix.
+Maximizing the pseudolikelihood.
+Finished MPLE.
+Starting Monte Carlo maximum likelihood estimation (MCMLE):
+Iteration 1 of at most 500:
+Optimizing with step length 0.0168618978203806.
+The log-likelihood improved by 3.068.
+Iteration 2 of at most 500:
+Optimizing with step length 0.02683855187667.
+The log-likelihood improved by 1.96.
+Iteration 3 of at most 500:
+Optimizing with step length 0.0157501733469499.
+The log-likelihood improved by 1.886.
+Iteration 4 of at most 500:
+Optimizing with step length 0.0206449430194141.
+The log-likelihood improved by 2.914.
+Iteration 5 of at most 500:
+Optimizing with step length 0.0216840535165315.
+The log-likelihood improved by 2.43.
+Iteration 6 of at most 500:
+Optimizing with step length 0.0318312015568762.
+The log-likelihood improved by 3.159.
+Iteration 7 of at most 500:
+Optimizing with step length 0.0215360968943175.
+The log-likelihood improved by 1.414.
+Iteration 8 of at most 500:
+Optimizing with step length 0.0225102066722564.
+The log-likelihood improved by 2.373.
+Iteration 9 of at most 500:
+Optimizing with step length 0.0186801531428388.
+The log-likelihood improved by 1.617.
+Iteration 10 of at most 500:
+Optimizing with step length 0.0184929771828608.
+The log-likelihood improved by 2.486.
+Iteration 11 of at most 500:
+Optimizing with step length 0.0254115902345357.
+The log-likelihood improved by 1.221.
+Iteration 12 of at most 500:
+Optimizing with step length 0.0235228894175496.
+The log-likelihood improved by 2.838.
+Iteration 13 of at most 500:
+Optimizing with step length 0.0436871616272223.
+The log-likelihood improved by 2.035.
+Iteration 14 of at most 500:
+Optimizing with step length 0.0164834120308294.
+The log-likelihood improved by 2.238.
+Iteration 15 of at most 500:
+Optimizing with step length 0.0298779654009597.
+The log-likelihood improved by 2.644.
+Iteration 16 of at most 500:
+Optimizing with step length 0.0293431649941856.
+The log-likelihood improved by 1.665.
+Iteration 17 of at most 500:
+Optimizing with step length 0.0237671502620106.
+The log-likelihood improved by 3.844.
+Iteration 18 of at most 500:
+Optimizing with step length 0.0484063188857161.
+The log-likelihood improved by 1.358.
+Iteration 19 of at most 500:
+Optimizing with step length 0.0283253945682162.
+The log-likelihood improved by 2.044.
+Iteration 20 of at most 500:
+Optimizing with step length 0.0355352841830405.
+The log-likelihood improved by 1.269.
+Iteration 21 of at most 500:
+Optimizing with step length 0.0442297968554093.
+The log-likelihood improved by 1.997.
+Iteration 22 of at most 500:
+Optimizing with step length 0.0460449142057343.
+The log-likelihood improved by 2.414.
+Iteration 23 of at most 500:
+Optimizing with step length 0.0215473386022016.
+The log-likelihood improved by 1.628.
+Iteration 24 of at most 500:
+Optimizing with step length 0.0723915245237127.
+The log-likelihood improved by 1.472.
+Iteration 25 of at most 500:
+Optimizing with step length 0.0574309118274394.
+The log-likelihood improved by 4.359.
+Iteration 26 of at most 500:
+Optimizing with step length 0.0586276114535736.
+The log-likelihood improved by 1.71.
+Iteration 27 of at most 500:
+Optimizing with step length 0.0698191573753694.
+The log-likelihood improved by 2.48.
+Iteration 28 of at most 500:
+Optimizing with step length 0.0431264177095148.
+The log-likelihood improved by 1.836.
+Iteration 29 of at most 500:
+Optimizing with step length 0.0704702080728127.
+The log-likelihood improved by 1.218.
+Iteration 30 of at most 500:
+Optimizing with step length 0.0797520553704256.
+The log-likelihood improved by 1.82.
+Iteration 31 of at most 500:
+Optimizing with step length 0.0851690219866735.
+The log-likelihood improved by 1.738.
+Iteration 32 of at most 500:
+Optimizing with step length 0.0970930388238848.
+The log-likelihood improved by 1.231.
+Iteration 33 of at most 500:
+Optimizing with step length 0.104577198524736.
+The log-likelihood improved by 1.979.
+Iteration 34 of at most 500:
+Optimizing with step length 0.185826359101512.
+The log-likelihood improved by 2.32.
+Iteration 35 of at most 500:
+Optimizing with step length 0.182507701080237.
+The log-likelihood improved by 1.313.
+Iteration 36 of at most 500:
+Optimizing with step length 0.225460069042638.
+The log-likelihood improved by 2.341.
+Iteration 37 of at most 500:
+Optimizing with step length 0.435956449150252.
+The log-likelihood improved by 1.12.
+Iteration 38 of at most 500:
+Optimizing with step length 0.604128675684962.
+The log-likelihood improved by 1.366.
+Iteration 39 of at most 500:
+Optimizing with step length 1.
+The log-likelihood improved by 1.052.
+Step length converged once. Increasing MCMC sample size.
+Iteration 40 of at most 500:
+Optimizing with step length 1.
+The log-likelihood improved by 1.174.
+Step length converged twice. Stopping.
+Finished MCMLE.
+This model was fit using MCMC.  To examine model diagnostics and check
+for degeneracy, use the mcmc.diagnostics() function.
+=>> PBS: job killed: walltime 86935 exceeded limit 86400
