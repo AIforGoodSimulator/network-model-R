@@ -88,7 +88,7 @@ Individuals in Moria live in either tents or isoboxes, with a capacity of 4 and 
 _Note:_ For convenience, we will define here `n`, the number of individuals in the simulated network. In experiments, this number equals to number of individuals in Moria.
 
 ```{r}
-n = 50
+n = 1000
 ```
 
 
@@ -97,7 +97,7 @@ prop.isobox = round(8100/(8100+10600),2) # prop. of people in isobox
 prop.tent = 1 - prop.isobox # prop. of people in tent
 
 cat(paste0("Proportion of people in isoboxes: ", prop.isobox, "\n",
-          "Proportion of people in tents:", prop.tent, "\n"))
+           "Proportion of people in tents:", prop.tent, "\n"))
 ```
 
 ### Making the housing attribute vectors
@@ -122,11 +122,11 @@ num_in_iso = num_of_iso*iso.capacity
 num_in_tents = n - num_in_iso # num_of_tents*tent.capacity 
 
 cat(paste0(
-          "Number of tents: ", num_of_tents, "\n",
-          "Number of isoboxes: ", num_of_iso, "\n",
-          "Number of people in tents: ", num_in_tents, "\n",
-          "Number of people in isoboxes: ", num_in_iso, "\n\n",
-          "Number of housing units in total: ", num_of_iso+num_of_tents))
+  "Number of tents: ", num_of_tents, "\n",
+  "Number of isoboxes: ", num_of_iso, "\n",
+  "Number of people in tents: ", num_in_tents, "\n",
+  "Number of people in isoboxes: ", num_in_iso, "\n\n",
+  "Number of housing units in total: ", num_of_iso+num_of_tents))
 ```
 
 ## Allocating people to rooms
@@ -136,20 +136,20 @@ tent_ids = 1:num_of_tents
 
 
 housing_iso = apportion_lr(
-                      vector.length = num_in_iso,
-                      values = iso_ids,
-                      proportions = rep(1/(num_of_iso), num_of_iso)
-                      )
+  vector.length = num_in_iso,
+  values = iso_ids,
+  proportions = rep(1/(num_of_iso), num_of_iso)
+)
 housing_iso = paste0("iso", housing_iso)
-                  
+
 
 housing_tents = apportion_lr(
-                        vector.length = num_in_tents,
-                        values = tent_ids,
-                        proportions = rep(1/(num_of_tents), num_of_tents)
-                        )
+  vector.length = num_in_tents,
+  values = tent_ids,
+  proportions = rep(1/(num_of_tents), num_of_tents)
+)
 housing_tents = paste0("tent", housing_tents)
-                       
+
 
 housing = c(housing_iso,housing_tents)
 
@@ -160,7 +160,7 @@ plot(table(housing),
      main = "Number of people per housing unit",
      ylab = "Number of people",
      xlab = "Housing ID",
-     )
+)
 grid()
 
 ```
@@ -217,12 +217,12 @@ coef.diss = dissolution_coefs(dissolution = ~offset(edges)+
 # Network estimation step
 ```{r}
 est <- netest(nw,
-               formation,
-               target.stats,
-               coef.diss,
-               coef.form = Inf,
-               set.control.ergm = control.ergm(MCMLE.maxit = 500)
-               )
+              formation,
+              target.stats,
+              coef.diss,
+              coef.form = Inf,
+              set.control.ergm = control.ergm(MCMLE.maxit = 500)
+)
 summary(est)
 # mcmc.diagnostics(est1$fit)
 ```
@@ -234,12 +234,12 @@ Do our network simulation match our target statistics?
 cores = parallel::detectCores()-1
 
 dx <- netdx(est,
-              nsims = 1e3,
-              nsteps = 90,
-              ncores = cores,
-              dynamic = FALSE,
-              nwstats.formula = ~edges + nodematch("housing", diff = FALSE),
-              set.control.ergm = control.simulate.ergm(MCMC.burnin = 1e6),
+            nsims = 1e3,
+            nsteps = 90,
+            ncores = cores,
+            dynamic = FALSE,
+            nwstats.formula = ~edges + nodematch("housing", diff = FALSE),
+            set.control.ergm = control.simulate.ergm(MCMC.burnin = 1e6),
             keep.tnetwork = T)
 
 print(dx) # diagnostics table
@@ -269,8 +269,8 @@ param = param.net(act.rate.se = 10,
                   qh.rate = 1/100,
                   hr.rate = 1/15,
                   qr.rate = 1/20,
-                  hf.rate = 0,#1/50,
-                  hf.rate.overcap = 0,# 1/25,
+                  hf.rate = 1/50,
+                  hf.rate.overcap = 1/25,
                   hosp.cap = 5,
                   hosp.tcoeff = 0.5,
                   a.rate = 0,
@@ -280,10 +280,10 @@ param = param.net(act.rate.se = 10,
                   ratesbyAge = paramsFromData$rates.byAge
 ) 
 
-init = init.net(i.num = 3,
+init = init.net(i.num = 1,
                 r.num = 0,
                 e.num = 0,
-                s.num = n - 3,
+                s.num = n - 1,
                 f.num = 0,
                 h.num = 0,
                 q.num = 0
@@ -327,11 +327,10 @@ res = as.data.frame(sim)
 
 ```{r}
 nw_sim <- get_network(sim)
-df_sim <- as.data.frame(nw_sim)
 
-color <- nw_sim %v% "housing"
-summary(df_sim$duration[which(color[df_sim$head] == color[df_sim$tail])])
-summary(df_sim$duration[which(color[df_sim$head] != color[df_sim$tail])])
+housing <- nw_sim %v% "housing"
+summary(res$duration[which(housing[res$head] == housing[res$tail])])
+summary(res$duration[which(housing[res$head] != housing[res$tail])])
 ```
 
 
@@ -342,9 +341,9 @@ summary(df_sim$duration[which(color[df_sim$head] != color[df_sim$tail])])
 ```{r}
 ggplotly(
   res %>% select(s.num, e.num, i.num, q.num, h.num, r.num, f.num, num, time) %>%
-  group_by(time) %>% summarise_all(~mean(.)) %>% 
-  pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
-  geom_line(size = 1)+scale_color_brewer(palette = "Set1")
+    group_by(time) %>% summarise_all(~mean(.)) %>% 
+    pivot_longer(-time) %>% ggplot(aes(x = time, y = value, color = name))+
+    geom_line(size = 1)+scale_color_brewer(palette = "Set1")
 )
 ```
 
@@ -424,54 +423,58 @@ rownames(adj) = igraph::V(graph)$housing
 adj = adj[order(rownames(adj)), order(colnames(adj))]
 
 pheatmap::pheatmap(adj,
-         color = c("grey50","black"),
-         border_color = "white",
-         angle_col = 45,
-         angle_row = 45,
-         fontsize = 6,
-         legend_breaks = c(0,1),
-         legend = F,
-         cluster_rows = F,
-         cluster_cols = F,
-         show_rownames = ifelse(n<100, T, F),
-         show_colnames = ifelse(n<100, T, F))
+                   color = c("grey50","black"),
+                   border_color = "white",
+                   angle_col = 45,
+                   angle_row = 45,
+                   fontsize = 6,
+                   legend_breaks = c(0,1),
+                   legend = F,
+                   cluster_rows = F,
+                   cluster_cols = F,
+                   show_rownames = ifelse(n<100, T, F),
+                   show_colnames = ifelse(n<100, T, F))
 
 ```
 
 ## Network heatmap GIF
 
 ```{r, animation.hook="gifski"}
-library(animation)
-
-nw_object = get_network(sim)
-ani.record(reset = TRUE)  # clear history before recording
-for (at in c(1:30)){
+get_animation = T
+if (get_animation) {
+  library(animation)
   
-  net_at = network.collapse(nw_object, at = at)
-  graph = intergraph::asIgraph(net_at)
-  adj = igraph::as_adjacency_matrix(graph, sparse = F)
+  nw_object = get_network(sim)
+  ani.record(reset = TRUE)  # clear history before recording
+  for (at in c(1:30)){
+    
+    net_at = network.collapse(nw_object, at = at)
+    graph = intergraph::asIgraph(net_at)
+    adj = igraph::as_adjacency_matrix(graph, sparse = F)
+    
+    colnames(adj) = igraph::V(graph)$housing
+    rownames(adj) = igraph::V(graph)$housing
+    
+    adj = adj[order(rownames(adj)), order(colnames(adj))]
+    
+    pheatmap::pheatmap(adj,
+                       color = c("grey50","black"),
+                       border_color = "white",
+                       angle_col = 45,
+                       angle_row = 45,
+                       fontsize = 6,
+                       legend_breaks = c(0,1),
+                       legend = F,
+                       cluster_rows = F,
+                       cluster_cols = F,
+                       show_rownames = ifelse(n<100, T, F),
+                       show_colnames = ifelse(n<100, T, F))
+    ani.record()
+  }
   
-  colnames(adj) = igraph::V(graph)$housing
-  rownames(adj) = igraph::V(graph)$housing
-  
-  adj = adj[order(rownames(adj)), order(colnames(adj))]
-  
-  pheatmap::pheatmap(adj,
-           color = c("grey50","black"),
-           border_color = "white",
-           angle_col = 45,
-           angle_row = 45,
-           fontsize = 6,
-           legend_breaks = c(0,1),
-           legend = F,
-           cluster_rows = F,
-           cluster_cols = F,
-           show_rownames = ifelse(n<100, T, F),
-           show_colnames = ifelse(n<100, T, F))
-  ani.record()
+  oopts = ani.options(interval = 0.5)
 }
 
-oopts = ani.options(interval = 0.5)
 ```
 
 

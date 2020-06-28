@@ -66,4 +66,3 @@ In this network model individuals can be in 7 seven different states:
 I have added some further functionality to some of the core `EpiModel` functions mostly to be able to extracts information relating to time spent in each state. 
 These include: `get_prev.net()`, `initilize.net()`, `saveout.net()` and `netsim()`.
 
-

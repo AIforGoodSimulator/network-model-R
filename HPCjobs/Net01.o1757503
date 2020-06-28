@@ -1,0 +1,103 @@
+ 
+Imperial College London HPC Service
+-----------------------------------
+Job Net01, jobid 1757503.pbs, username lc5415 - started execution at 02:54:18 Mon 22/06/20 on system ax4
+ 
+  |                                                                              |                                                                      |   0%  |                                                                              |.                                                                     |   2%
+  ordinary text without R code
+
+  |                                                                              |...                                                                   |   4%
+label: doc_options (with options) 
+List of 2
+ $ echo   : symbol F
+ $ message: symbol F
+
+  |                                                                              |....                                                                  |   6%
+  ordinary text without R code
+
+  |                                                                              |......                                                                |   8%
+label: packages
+  |                                                                              |.......                                                               |  10%
+  ordinary text without R code
+
+  |                                                                              |.........                                                             |  12%
+label: unnamed-chunk-1
+  |                                                                              |..........                                                            |  14%
+  ordinary text without R code
+
+  |                                                                              |...........                                                           |  16%
+label: unnamed-chunk-2
+  |                                                                              |.............                                                         |  18%
+  ordinary text without R code
+
+  |                                                                              |..............                                                        |  20%
+label: unnamed-chunk-3
+  |                                                                              |................                                                      |  22%
+  ordinary text without R code
+
+  |                                                                              |.................                                                     |  24%
+label: unnamed-chunk-4
+  |                                                                              |...................                                                   |  27%
+  ordinary text without R code
+
+  |                                                                              |....................                                                  |  29%
+label: unnamed-chunk-5
+  |                                                                              |.....................                                                 |  31%
+  ordinary text without R code
+
+  |                                                                              |.......................                                               |  33%
+label: unnamed-chunk-6
+  |                                                                              |........................                                              |  35%
+  ordinary text without R code
+
+  |                                                                              |..........................                                            |  37%
+label: unnamed-chunk-7
+  |                                                                              |...........................                                           |  39%
+  ordinary text without R code
+
+  |                                                                              |.............................                                         |  41%
+label: unnamed-chunk-8
+  |                                                                              |..............................                                        |  43%
+  ordinary text without R code
+
+  |                                                                              |...............................                                       |  45%
+label: unnamed-chunk-9
+  |                                                                              |.................................                                     |  47%
+  ordinary text without R code
+
+  |                                                                              |..................................                                    |  49%
+label: unnamed-chunk-10
+  |                                                                              |....................................                                  |  51%
+  ordinary text without R code
+
+  |                                                                              |.....................................                                 |  53%
+label: unnamed-chunk-11
+  |                                                                              |.......................................                               |  55%
+  ordinary text without R code
+
+  |                                                                              |........................................                              |  57%
+label: unnamed-chunk-12
+  |                                                                              |.........................................                             |  59%
+  ordinary text without R code
+
+  |                                                                              |...........................................                           |  61%
+label: unnamed-chunk-13
+  |                                                                              |............................................                          |  63%
+  ordinary text without R code
+
+  |                                                                              |..............................................                        |  65%
+label: unnamed-chunk-14 (with options) 
+List of 2
+ $ echo   : symbol F
+ $ message: symbol F
+
+
+============================================
+
+        Job resource usage summary 
+
+                 Memory (GB)    NCPUs
+ Requested  :       480            40
+ Used       :        21 (peak)   3.04 (ave)
+
+============================================
